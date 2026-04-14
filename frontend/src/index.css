@@ -1,0 +1,99 @@
+/* ============================================================
+   index.css — Amazon-Style Global Styles & Design System
+   ============================================================ */
+
+/* Import Google Font — closest to Amazon Ember */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* ============================
+   AMAZON COLOR PALETTE
+   ============================ */
+:root {
+  /* Amazon Brand Colors */
+  --amazon-navy: #131921;
+  --amazon-navy-light: #232f3e;
+  --amazon-orange: #FF9900;
+  --amazon-orange-hover: #e88b00;
+  --amazon-yellow: #FFD814;
+  --amazon-yellow-hover: #F7CA00;
+  --amazon-yellow-border: #FCD200;
+
+  /* Backgrounds */
+  --bg-page: #EAEDED;
+  --bg-white: #FFFFFF;
+  --bg-light: #F5F5F5;
+
+  /* Text */
+  --text-dark: #0F1111;
+  --text-medium: #565959;
+  --text-light: #767676;
+  --text-link: #007185;
+  --text-link-hover: #C7511F;
+
+  /* Functional Colors */
+  --price-color: #B12704;
+  --price-whole: #0F1111;
+  --star-color: #FFA41C;
+  --success: #067D62;
+  --danger: #B12704;
+  --border-color: #DDD;
+  --border-light: #E7E7E7;
+  --shadow: rgba(0, 0, 0, 0.08);
+
+  /* Sizing */
+  --radius: 8px;
+  --radius-sm: 4px;
+  --radius-lg: 12px;
+  --max-width: 1500px;
+
+  --font: 'Inter', 'Amazon Ember', Arial, sans-serif;
+}
+
+/* ============================
+   RESET & BASE
+   ============================ */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font);
+  background-color: var(--bg-page);
+  color: var(--text-dark);
+  line-height: 1.5;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  text-decoration: none;
+  color: var(--text-link);
+}
+
+a:hover {
+  color: var(--text-link-hover);
+  text-decoration: underline;
+}
+
+img {
+  max-width: 100%;
+  display: block;
+}
+
+button {
+  cursor: pointer;
+  font-family: var(--font);
+  border: none;
+  outline: none;
+}
+
+input, select {
+  font-family: var(--font);
+}
