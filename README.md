@@ -11,8 +11,7 @@ A high-performance, visually stunning e-commerce platform that replicates the Am
 ---
 
 ## 🚀 Live Demo & Repository
-- **Frontend**: [Deploy Link Here]
-- **Backend API**: [API Link Here]
+- **Frontend**: https://scaler-assignment-pi.vercel.app/
 - **GitHub**: [https://github.com/Rs21122004/ScalerAssignment](https://github.com/Rs21122004/ScalerAssignment)
 
 ---
