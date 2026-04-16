@@ -27,7 +27,6 @@ import {
   getDeliveryPromise,
   getStars,
   recommendationProducts,
-  sampleReviews,
 } from "../data/amazonExtras";
 
 function ProductDetailPage({ onCartUpdate }) {
@@ -37,8 +36,8 @@ function ProductDetailPage({ onCartUpdate }) {
   // navigate lets the Buy Now button move directly to checkout.
   const navigate = useNavigate();
 
-  // Clerk auth for wishlist
-  const { isSignedIn } = useUser();
+  // Clerk auth for wishlist and reviews
+  const { isSignedIn, user } = useUser();
 
   // Main product state from the backend.
   const [product, setProduct] = useState(null);
@@ -55,6 +54,13 @@ function ProductDetailPage({ onCartUpdate }) {
 
   // Wishlist state
   const [wishlisted, setWishlisted] = useState(false);
+
+  // Reviews state
+  const [reviews, setReviews] = useState([]);
+  const [reviewForm, setReviewForm] = useState({ rating: 5, title: "", body: "" });
+  const [reviewError, setReviewError] = useState("");
+  const [reviewSuccess, setReviewSuccess] = useState("");
+  const [showReviewForm, setShowReviewForm] = useState(false);
 
   // ============================
   // Fetch product details
@@ -87,6 +93,54 @@ function ProductDetailPage({ onCartUpdate }) {
         .catch(() => {});
     }
   }, [isSignedIn, id]);
+
+  // Fetch reviews for this product
+  const fetchReviews = useCallback(async () => {
+    try {
+      const res = await API.get(`/api/products/${id}/reviews`);
+      setReviews(res.data);
+    } catch {
+      // silently fail
+    }
+  }, [id]);
+
+  useEffect(() => {
+    fetchReviews();
+  }, [fetchReviews]);
+
+  // Submit a review
+  const submitReview = async (e) => {
+    e.preventDefault();
+    setReviewError("");
+    setReviewSuccess("");
+
+    if (!reviewForm.title.trim() || !reviewForm.body.trim()) {
+      setReviewError("Title and review text are required.");
+      return;
+    }
+
+    try {
+      await API.post(`/api/products/${id}/reviews`, {
+        rating: reviewForm.rating,
+        title: reviewForm.title,
+        body: reviewForm.body,
+        reviewer_name: user?.firstName || user?.fullName || "Amazon Customer",
+      });
+
+      setReviewSuccess("Review submitted successfully!");
+      setReviewForm({ rating: 5, title: "", body: "" });
+      setShowReviewForm(false);
+
+      // Refresh reviews and product data to update average
+      fetchReviews();
+      fetchProduct();
+
+      setTimeout(() => setReviewSuccess(""), 3000);
+    } catch (err) {
+      const msg = err.response?.data?.error || "Failed to submit review.";
+      setReviewError(msg);
+    }
+  };
 
   // Toggle wishlist
   const toggleWishlist = async () => {
@@ -365,26 +419,99 @@ function ProductDetailPage({ onCartUpdate }) {
           <div className="rating-summary">
             <div className="rating-big">{product.rating || "4.2"} out of 5</div>
             <div className="review-stars">{getStars(product.rating || 4)}</div>
-            <p>{Number(product.review_count || 1284).toLocaleString("en-IN")} global ratings</p>
-            {[5, 4, 3, 2, 1].map((star, index) => (
-              <div key={star} className="rating-bar-row">
-                <span>{star} star</span>
-                <div className="rating-bar">
-                  <div style={{ width: `${70 - index * 13}%` }} />
+            <p>{Number(product.review_count || reviews.length).toLocaleString("en-IN")} global ratings</p>
+            {[5, 4, 3, 2, 1].map((star) => {
+              const count = reviews.filter((r) => r.rating === star).length;
+              const pct = reviews.length > 0 ? (count / reviews.length) * 100 : 0;
+              return (
+                <div key={star} className="rating-bar-row">
+                  <span>{star} star</span>
+                  <div className="rating-bar">
+                    <div style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="rating-bar-pct">{Math.round(pct)}%</span>
                 </div>
-              </div>
-            ))}
+              );
+            })}
+
+            {/* Write a review button */}
+            {isSignedIn && (
+              <button
+                className="btn btn-outline btn-full"
+                style={{ marginTop: "1rem" }}
+                onClick={() => setShowReviewForm(!showReviewForm)}
+              >
+                ✍️ Write a customer review
+              </button>
+            )}
           </div>
 
           <div className="review-list">
-            {sampleReviews.map((review) => (
-              <article key={review.title} className="review-card">
-                <strong>{review.name}</strong>
+            {/* Review form */}
+            {showReviewForm && (
+              <form className="review-form" onSubmit={submitReview}>
+                <h3>Create Review</h3>
+
+                <div className="form-group">
+                  <label>Overall rating</label>
+                  <div className="star-selector">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        type="button"
+                        className={`star-btn ${star <= reviewForm.rating ? "active" : ""}`}
+                        onClick={() => setReviewForm({ ...reviewForm, rating: star })}
+                      >
+                        {star <= reviewForm.rating ? "★" : "☆"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="reviewTitle">Add a headline</label>
+                  <input
+                    type="text"
+                    id="reviewTitle"
+                    placeholder="What's most important to know?"
+                    value={reviewForm.title}
+                    onChange={(e) => setReviewForm({ ...reviewForm, title: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="reviewBody">Add a written review</label>
+                  <textarea
+                    id="reviewBody"
+                    rows="4"
+                    placeholder="What did you like or dislike? What did you use this product for?"
+                    value={reviewForm.body}
+                    onChange={(e) => setReviewForm({ ...reviewForm, body: e.target.value })}
+                  />
+                </div>
+
+                {reviewError && <span className="field-error">{reviewError}</span>}
+                {reviewSuccess && <span className="review-success">{reviewSuccess}</span>}
+
+                <button type="submit" className="btn btn-primary">Submit</button>
+              </form>
+            )}
+
+            {/* Existing reviews */}
+            {reviews.length === 0 && !showReviewForm && (
+              <p className="no-reviews">No reviews yet. Be the first to review this product!</p>
+            )}
+            {reviews.map((review) => (
+              <article key={review.id} className="review-card">
+                <strong>{review.reviewer_name}</strong>
                 <div className="review-stars">{getStars(review.rating)}</div>
                 <h3>{review.title}</h3>
-                <p className="review-date">{review.date}</p>
+                <p className="review-date">
+                  Reviewed on {new Date(review.created_at).toLocaleDateString("en-IN", {
+                    day: "numeric", month: "long", year: "numeric"
+                  })}
+                </p>
                 <p>{review.body}</p>
-                <button className="btn btn-outline">Helpful</button>
               </article>
             ))}
           </div>

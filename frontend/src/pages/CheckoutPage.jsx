@@ -25,6 +25,47 @@ import { useNavigate } from "react-router-dom";
 import { useUser } from "@clerk/clerk-react";
 import API from "../api";
 
+// All 28 states + 8 union territories of India
+const INDIAN_STATES = [
+  "Andhra Pradesh",
+  "Arunachal Pradesh",
+  "Assam",
+  "Bihar",
+  "Chhattisgarh",
+  "Goa",
+  "Gujarat",
+  "Haryana",
+  "Himachal Pradesh",
+  "Jharkhand",
+  "Karnataka",
+  "Kerala",
+  "Madhya Pradesh",
+  "Maharashtra",
+  "Manipur",
+  "Meghalaya",
+  "Mizoram",
+  "Nagaland",
+  "Odisha",
+  "Punjab",
+  "Rajasthan",
+  "Sikkim",
+  "Tamil Nadu",
+  "Telangana",
+  "Tripura",
+  "Uttar Pradesh",
+  "Uttarakhand",
+  "West Bengal",
+  // Union Territories
+  "Andaman and Nicobar Islands",
+  "Chandigarh",
+  "Dadra and Nagar Haveli and Daman and Diu",
+  "Delhi",
+  "Jammu and Kashmir",
+  "Ladakh",
+  "Lakshadweep",
+  "Puducherry",
+];
+
 function CheckoutPage({ onCartUpdate }) {
   // ============================
   // AUTH CHECK
@@ -62,6 +103,17 @@ function CheckoutPage({ onCartUpdate }) {
     pincode: "",
     phone: "",
   });
+
+  // Track which fields the user has interacted with.
+  // Errors are only shown AFTER a field is touched (blur event).
+  const [touched, setTouched] = useState({});
+
+  // Payment method selection (mocked — no real payment processing)
+  const [paymentMethod, setPaymentMethod] = useState("cod");
+
+  // Geolocation state for "Use current location" button
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState("");
 
   const fetchCart = useCallback(async () => {
     try {
@@ -104,11 +156,164 @@ function CheckoutPage({ onCartUpdate }) {
   // HANDLE FORM INPUT CHANGES
   // ============================
   const handleInputChange = (e) => {
-    setAddress({
-      ...address,
-      [e.target.name]: e.target.value,
-    });
+    const { name, value } = e.target;
+
+    // For pincode: allow only digits, max 6
+    if (name === "pincode") {
+      const digitsOnly = value.replace(/\D/g, "").slice(0, 6);
+      setAddress({ ...address, [name]: digitsOnly });
+      return;
+    }
+
+    // For phone: allow only digits, max 10
+    if (name === "phone") {
+      const digitsOnly = value.replace(/\D/g, "").slice(0, 10);
+      setAddress({ ...address, [name]: digitsOnly });
+      return;
+    }
+
+    setAddress({ ...address, [name]: value });
   };
+
+  // Mark a field as "touched" when the user clicks away from it.
+  // This prevents errors from showing on fields the user hasn't
+  // interacted with yet.
+  const handleBlur = (e) => {
+    setTouched({ ...touched, [e.target.name]: true });
+  };
+
+  // ============================
+  // USE CURRENT LOCATION
+  // ============================
+  // Uses browser Geolocation API → OpenStreetMap Nominatim for
+  // free reverse geocoding. Auto-fills city, state, and pincode.
+  const useCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationError("Geolocation is not supported by your browser.");
+      return;
+    }
+
+    setLocating(true);
+    setLocationError("");
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const { latitude, longitude } = position.coords;
+
+          // Free reverse geocoding via OpenStreetMap Nominatim
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&addressdetails=1`,
+            { headers: { "Accept-Language": "en" } }
+          );
+          const data = await res.json();
+          const addr = data.address || {};
+
+          // Extract city (Nominatim returns it under various keys)
+          const city =
+            addr.city ||
+            addr.town ||
+            addr.village ||
+            addr.suburb ||
+            addr.county ||
+            "";
+
+          // Extract state and match to dropdown
+          const rawState = addr.state || "";
+          const matchedState = INDIAN_STATES.find(
+            (s) => s.toLowerCase() === rawState.toLowerCase()
+          );
+
+          const pincode = addr.postcode || "";
+
+          setAddress((prev) => ({
+            ...prev,
+            city: city,
+            state: matchedState || "",
+            pincode: pincode.replace(/\D/g, "").slice(0, 6),
+          }));
+
+          // Mark these fields as touched so validation runs
+          setTouched((prev) => ({
+            ...prev,
+            city: true,
+            state: true,
+            pincode: true,
+          }));
+        } catch {
+          setLocationError("Could not fetch address. Please enter manually.");
+        } finally {
+          setLocating(false);
+        }
+      },
+      (err) => {
+        setLocating(false);
+        if (err.code === err.PERMISSION_DENIED) {
+          setLocationError("Location access denied. Please allow it in browser settings.");
+        } else {
+          setLocationError("Could not get your location. Please try again.");
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  // ============================
+  // FIELD-LEVEL VALIDATION
+  // ============================
+  // Returns an object with error messages for each invalid field.
+  // An empty string means the field is valid.
+  const getErrors = () => {
+    const errors = {};
+
+    // Full Name: required, letters & spaces only, at least 2 chars
+    if (!address.fullName.trim()) {
+      errors.fullName = "Full name is required.";
+    } else if (address.fullName.trim().length < 2) {
+      errors.fullName = "Name must be at least 2 characters.";
+    } else if (!/^[a-zA-Z\s.]+$/.test(address.fullName.trim())) {
+      errors.fullName = "Name can only contain letters, spaces, and dots.";
+    }
+
+    // Address Line: required, at least 5 chars
+    if (!address.addressLine.trim()) {
+      errors.addressLine = "Address is required.";
+    } else if (address.addressLine.trim().length < 5) {
+      errors.addressLine = "Address must be at least 5 characters.";
+    }
+
+    // City: required, letters & spaces only
+    if (!address.city.trim()) {
+      errors.city = "City is required.";
+    } else if (!/^[a-zA-Z\s]+$/.test(address.city.trim())) {
+      errors.city = "City can only contain letters.";
+    }
+
+    // State: must be selected from dropdown
+    if (!address.state) {
+      errors.state = "Please select a state.";
+    }
+
+    // Pincode: exactly 6 digits
+    if (!address.pincode) {
+      errors.pincode = "Pincode is required.";
+    } else if (!/^\d{6}$/.test(address.pincode)) {
+      errors.pincode = "Pincode must be exactly 6 digits.";
+    }
+
+    // Phone: exactly 10 digits, must start with 6-9 (Indian mobile)
+    if (!address.phone) {
+      errors.phone = "Phone number is required.";
+    } else if (!/^\d{10}$/.test(address.phone)) {
+      errors.phone = "Phone number must be exactly 10 digits.";
+    } else if (!/^[6-9]/.test(address.phone)) {
+      errors.phone = "Phone number must start with 6, 7, 8, or 9.";
+    }
+
+    return errors;
+  };
+
+  const errors = getErrors();
 
   // ============================
   // CALCULATE TOTAL PRICE
@@ -121,16 +326,8 @@ function CheckoutPage({ onCartUpdate }) {
   // ============================
   // VALIDATE THE FORM
   // ============================
-  const isFormValid = () => {
-    return (
-      address.fullName.trim() !== "" &&
-      address.addressLine.trim() !== "" &&
-      address.city.trim() !== "" &&
-      address.state.trim() !== "" &&
-      address.pincode.trim() !== "" &&
-      address.phone.trim() !== ""
-    );
-  };
+  // Form is valid only when there are ZERO errors.
+  const isFormValid = () => Object.keys(errors).length === 0;
 
   // ============================
   // PLACE ORDER (THE MAIN ACTION)
@@ -138,7 +335,15 @@ function CheckoutPage({ onCartUpdate }) {
   const placeOrder = async () => {
     // Don't proceed if form is incomplete
     if (!isFormValid()) {
-      alert("Please fill in all shipping details.");
+      // Mark ALL fields as touched so errors become visible
+      setTouched({
+        fullName: true,
+        addressLine: true,
+        city: true,
+        state: true,
+        pincode: true,
+        phone: true,
+      });
       return;
     }
 
@@ -223,8 +428,30 @@ function CheckoutPage({ onCartUpdate }) {
           </div>
 
           <div className="checkout-form">
+            {/* Use current location button */}
+            <button
+              type="button"
+              className="btn-use-location"
+              onClick={useCurrentLocation}
+              disabled={locating}
+            >
+              {locating ? (
+                <>
+                  <span className="location-spinner"></span>
+                  Detecting location…
+                </>
+              ) : (
+                <>
+                  📍 Use current location
+                </>
+              )}
+            </button>
+            {locationError && (
+              <span className="field-error" style={{ marginBottom: "0.3rem" }}>{locationError}</span>
+            )}
+
             {/* Full Name */}
-            <div className="form-group">
+            <div className={`form-group ${touched.fullName && errors.fullName ? "has-error" : ""}`}>
               <label htmlFor="fullName">Full Name</label>
               <input
                 type="text"
@@ -233,11 +460,15 @@ function CheckoutPage({ onCartUpdate }) {
                 placeholder="Enter your full name"
                 value={address.fullName}
                 onChange={handleInputChange}
+                onBlur={handleBlur}
               />
+              {touched.fullName && errors.fullName && (
+                <span className="field-error">{errors.fullName}</span>
+              )}
             </div>
 
             {/* Address Line */}
-            <div className="form-group">
+            <div className={`form-group ${touched.addressLine && errors.addressLine ? "has-error" : ""}`}>
               <label htmlFor="addressLine">Address</label>
               <input
                 type="text"
@@ -246,12 +477,16 @@ function CheckoutPage({ onCartUpdate }) {
                 placeholder="House no, Street, Area"
                 value={address.addressLine}
                 onChange={handleInputChange}
+                onBlur={handleBlur}
               />
+              {touched.addressLine && errors.addressLine && (
+                <span className="field-error">{errors.addressLine}</span>
+              )}
             </div>
 
             {/* City and State — side by side */}
             <div className="form-row">
-              <div className="form-group">
+              <div className={`form-group ${touched.city && errors.city ? "has-error" : ""}`}>
                 <label htmlFor="city">City</label>
                 <input
                   type="text"
@@ -260,44 +495,67 @@ function CheckoutPage({ onCartUpdate }) {
                   placeholder="City"
                   value={address.city}
                   onChange={handleInputChange}
+                  onBlur={handleBlur}
                 />
+                {touched.city && errors.city && (
+                  <span className="field-error">{errors.city}</span>
+                )}
               </div>
-              <div className="form-group">
+              <div className={`form-group ${touched.state && errors.state ? "has-error" : ""}`}>
                 <label htmlFor="state">State</label>
-                <input
-                  type="text"
+                <select
                   id="state"
                   name="state"
-                  placeholder="State"
                   value={address.state}
                   onChange={handleInputChange}
-                />
+                  onBlur={handleBlur}
+                >
+                  <option value="">Select State</option>
+                  {INDIAN_STATES.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                {touched.state && errors.state && (
+                  <span className="field-error">{errors.state}</span>
+                )}
               </div>
             </div>
 
             {/* Pincode and Phone — side by side */}
             <div className="form-row">
-              <div className="form-group">
+              <div className={`form-group ${touched.pincode && errors.pincode ? "has-error" : ""}`}>
                 <label htmlFor="pincode">Pincode</label>
                 <input
                   type="text"
                   id="pincode"
                   name="pincode"
                   placeholder="6-digit pincode"
+                  inputMode="numeric"
+                  maxLength="6"
                   value={address.pincode}
                   onChange={handleInputChange}
+                  onBlur={handleBlur}
                 />
+                {touched.pincode && errors.pincode && (
+                  <span className="field-error">{errors.pincode}</span>
+                )}
               </div>
-              <div className="form-group">
+              <div className={`form-group ${touched.phone && errors.phone ? "has-error" : ""}`}>
                 <label htmlFor="phone">Phone Number</label>
                 <input
                   type="text"
                   id="phone"
                   name="phone"
-                  placeholder="10-digit phone"
+                  placeholder="10-digit mobile number"
+                  inputMode="numeric"
+                  maxLength="10"
                   value={address.phone}
                   onChange={handleInputChange}
+                  onBlur={handleBlur}
                 />
+                {touched.phone && errors.phone && (
+                  <span className="field-error">{errors.phone}</span>
+                )}
               </div>
             </div>
           </div>
@@ -306,11 +564,23 @@ function CheckoutPage({ onCartUpdate }) {
           <div className="payment-method-box">
             <h2 className="checkout-section-title">2. Payment Method</h2>
             <label>
-              <input type="radio" checked readOnly />
+              <input
+                type="radio"
+                name="paymentMethod"
+                value="cod"
+                checked={paymentMethod === "cod"}
+                onChange={(e) => setPaymentMethod(e.target.value)}
+              />
               Cash on Delivery / Pay on Delivery
             </label>
             <label>
-              <input type="radio" readOnly />
+              <input
+                type="radio"
+                name="paymentMethod"
+                value="card"
+                checked={paymentMethod === "card"}
+                onChange={(e) => setPaymentMethod(e.target.value)}
+              />
               Credit or Debit Card
             </label>
             <p>Payment UI is shown for realism; order placement still uses the existing backend.</p>

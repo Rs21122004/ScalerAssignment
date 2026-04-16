@@ -56,12 +56,6 @@ const PORT = process.env.PORT || 5001;
 // Middleware = functions that run BEFORE our route handlers.
 // They process the incoming request first.
 
-// Clerk auth middleware runs on EVERY request.
-// It reads the Authorization header, verifies the JWT with Clerk,
-// and sets req.auth.userId for signed-in users.
-// For guests (no token), req.auth is empty — the request still proceeds.
-app.use(clerkAuth);
-
 // cors() allows requests from different origins (ports).
 // Without this, the browser would BLOCK our frontend from calling the backend.
 // Why? Frontend is on localhost:5173, backend is on localhost:5000 — different ports = different origins.
@@ -69,7 +63,15 @@ app.use(cors());
 
 // express.json() parses incoming JSON request bodies.
 // Without this, req.body would be undefined when the frontend sends JSON data.
+// IMPORTANT: This MUST run before Clerk auth middleware, because Clerk can
+// consume the request body stream, making it unreadable by express.json().
 app.use(express.json());
+
+// Clerk auth middleware runs on EVERY request.
+// It reads the Authorization header, verifies the JWT with Clerk,
+// and sets req.auth.userId for signed-in users.
+// For guests (no token), req.auth is empty — the request still proceeds.
+app.use(clerkAuth);
 
 // ============================
 // ROUTES

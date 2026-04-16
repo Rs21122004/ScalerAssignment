@@ -86,6 +86,24 @@ CREATE TABLE IF NOT EXISTS wishlist_items (
 );
 
 -- ============================
+-- TABLE 7: reviews
+-- ============================
+-- Each user can review a product exactly once (UNIQUE constraint).
+-- Rating is 1-5. The product's average rating and review_count
+-- are updated automatically when a review is added.
+CREATE TABLE IF NOT EXISTS reviews (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+    user_id VARCHAR(255) NOT NULL,
+    reviewer_name VARCHAR(100) DEFAULT 'Amazon Customer',
+    rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+    title VARCHAR(200) NOT NULL,
+    body TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(product_id, user_id)
+);
+
+-- ============================
 -- MIGRATION: Add columns to existing tables
 -- ============================
 -- Safe to re-run: IF NOT EXISTS / IF NOT prevents errors.

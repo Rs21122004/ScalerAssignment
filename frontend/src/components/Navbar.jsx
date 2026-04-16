@@ -11,9 +11,10 @@
 //   6. Wishlist heart icon with saved items link
 // ============================================================
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useUser, useClerk } from "@clerk/clerk-react";
+import API from "../api";
 
 function Navbar({ cartCount }) {
   // Search state is local because the navbar only needs it before
@@ -38,6 +39,103 @@ function Navbar({ cartCount }) {
     : "Sign in";
 
   // ============================
+  // LOCATION DETECTION STATE
+  // ============================
+  const [userCity, setUserCity] = useState(() => localStorage.getItem("amz_city") || "");
+  const [userPincode, setUserPincode] = useState(() => localStorage.getItem("amz_pincode") || "");
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState("");
+  const [pincodeInput, setPincodeInput] = useState("");
+
+  // Persist location to localStorage so it survives page refreshes
+  useEffect(() => {
+    if (userCity) localStorage.setItem("amz_city", userCity);
+    if (userPincode) localStorage.setItem("amz_pincode", userPincode);
+  }, [userCity, userPincode]);
+
+  // ============================
+  // DETECT CURRENT LOCATION
+  // ============================
+  const detectLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationError("Geolocation not supported.");
+      return;
+    }
+
+    setLocating(true);
+    setLocationError("");
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        try {
+          const { latitude, longitude } = position.coords;
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&addressdetails=1`,
+            { headers: { "Accept-Language": "en" } }
+          );
+          const data = await res.json();
+          const addr = data.address || {};
+
+          const city = addr.city || addr.town || addr.village || addr.suburb || addr.county || "";
+          const pincode = (addr.postcode || "").replace(/\D/g, "").slice(0, 6);
+
+          setUserCity(city);
+          setUserPincode(pincode);
+          setShowLocation(false);
+        } catch {
+          setLocationError("Could not fetch address.");
+        } finally {
+          setLocating(false);
+        }
+      },
+      (err) => {
+        setLocating(false);
+        if (err.code === err.PERMISSION_DENIED) {
+          setLocationError("Location access denied.");
+        } else {
+          setLocationError("Could not detect location.");
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  // ============================
+  // APPLY MANUAL PINCODE
+  // ============================
+  const applyPincode = async () => {
+    const pin = pincodeInput.replace(/\D/g, "").slice(0, 6);
+    if (pin.length !== 6) {
+      setLocationError("Enter a valid 6-digit pincode.");
+      return;
+    }
+    setLocating(true);
+    setLocationError("");
+    try {
+      // Use Nominatim to look up the pincode
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/search?postalcode=${pin}&country=India&format=json&addressdetails=1&limit=1`,
+        { headers: { "Accept-Language": "en" } }
+      );
+      const data = await res.json();
+      if (data.length > 0) {
+        const addr = data[0].address || {};
+        const city = addr.city || addr.town || addr.village || addr.county || addr.state_district || "";
+        setUserCity(city);
+        setUserPincode(pin);
+        setShowLocation(false);
+        setPincodeInput("");
+      } else {
+        setLocationError("Pincode not found. Try another.");
+      }
+    } catch {
+      setLocationError("Could not look up pincode.");
+    } finally {
+      setLocating(false);
+    }
+  };
+
+  // ============================
   // Submit search
   // ============================
   // We store search/category in the URL so ProductsPage can read it.
@@ -49,7 +147,47 @@ function Navbar({ cartCount }) {
     if (selectedCategory !== "All") params.set("category", selectedCategory);
 
     navigate(`/products?${params.toString()}`);
+    setSuggestions([]);
+    setShowSuggestions(false);
   };
+
+  // ============================
+  // SEARCH SUGGESTIONS
+  // ============================
+  const [suggestions, setSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const searchRef = useRef(null);
+
+  // Debounced fetch: wait 300ms after the user stops typing
+  useEffect(() => {
+    if (searchTerm.trim().length < 2) {
+      setSuggestions([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await API.get(`/api/products/suggestions?q=${encodeURIComponent(searchTerm.trim())}`);
+        setSuggestions(res.data);
+        setShowSuggestions(true);
+      } catch {
+        setSuggestions([]);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Close suggestions when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (searchRef.current && !searchRef.current.contains(e.target)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // ============================
   // Handle sign out
@@ -77,31 +215,63 @@ function Navbar({ cartCount }) {
           style={{ minWidth: 110 }}
         >
           <span className="nav-link-label">📍 Deliver to</span>
-          <span className="nav-link-value">India</span>
+          <span className="nav-link-value">
+            {userCity && userPincode
+              ? `${userCity} ${userPincode}`
+              : userPincode
+                ? `India ${userPincode}`
+                : "Update location"}
+          </span>
         </button>
 
         {/* Search bar */}
-        <form className="navbar-search" onSubmit={handleSearch}>
-          <select
-            className="search-category"
-            value={selectedCategory}
-            onChange={(e) => setSelectedCategory(e.target.value)}
-          >
-            <option>All</option>
-            <option>Electronics</option>
-            <option>Books</option>
-            <option>Clothing</option>
-            <option>Home</option>
-          </select>
-          <input
-            className="search-input"
-            type="text"
-            placeholder="Search Amazon.in"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-          <button className="search-btn" type="submit">🔍</button>
-        </form>
+        <div className="navbar-search-wrapper" ref={searchRef}>
+          <form className="navbar-search" onSubmit={handleSearch}>
+            <select
+              className="search-category"
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+            >
+              <option>All</option>
+              <option>Electronics</option>
+              <option>Books</option>
+              <option>Clothing</option>
+              <option>Home</option>
+            </select>
+            <input
+              className="search-input"
+              type="text"
+              placeholder="Search Amazon.in"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+            />
+            <button className="search-btn" type="submit">🔍</button>
+          </form>
+
+          {/* Search suggestions dropdown */}
+          {showSuggestions && suggestions.length > 0 && (
+            <div className="search-suggestions">
+              {suggestions.map((item) => (
+                <button
+                  key={item.id}
+                  className="suggestion-item"
+                  onClick={() => {
+                    setShowSuggestions(false);
+                    setSearchTerm("");
+                    navigate(`/products/${item.id}`);
+                  }}
+                >
+                  <img src={item.image_url} alt={item.name} className="suggestion-img" />
+                  <div className="suggestion-info">
+                    <span className="suggestion-name">{item.name}</span>
+                    <span className="suggestion-meta">in {item.category} · ₹{Number(item.price).toLocaleString("en-IN")}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Nav links */}
         <div className="navbar-links">
@@ -170,8 +340,38 @@ function Navbar({ cartCount }) {
         <div className="nav-popover location-popover">
           <h3>Choose your location</h3>
           <p>Delivery options and speed may vary by address.</p>
-          <button className="btn btn-primary btn-full">Use current location</button>
-          <input placeholder="Enter pincode" />
+          <button
+            className="btn btn-primary btn-full"
+            onClick={detectLocation}
+            disabled={locating}
+          >
+            {locating ? "Detecting…" : "📍 Use current location"}
+          </button>
+          <div className="location-or">— or —</div>
+          <div className="location-pincode-row">
+            <input
+              placeholder="Enter 6-digit pincode"
+              value={pincodeInput}
+              onChange={(e) => setPincodeInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              inputMode="numeric"
+              maxLength="6"
+            />
+            <button
+              className="btn btn-outline"
+              onClick={applyPincode}
+              disabled={locating}
+            >
+              Apply
+            </button>
+          </div>
+          {locationError && (
+            <span className="location-error">{locationError}</span>
+          )}
+          {userCity && userPincode && (
+            <div className="location-current">
+              📍 Current: <strong>{userCity}, {userPincode}</strong>
+            </div>
+          )}
         </div>
       )}
 
