@@ -105,9 +105,39 @@ app.get("/", (req, res) => {
 });
 
 // ============================
+// AUTO-MIGRATION
+// ============================
+// Creates any missing tables on startup. This ensures the production
+// database on Render gets new tables automatically on deploy.
+const db = require("./db");
+
+async function runMigrations() {
+  try {
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS reviews (
+        id SERIAL PRIMARY KEY,
+        product_id INTEGER REFERENCES products(id) ON DELETE CASCADE,
+        user_id VARCHAR(255) NOT NULL,
+        reviewer_name VARCHAR(100) DEFAULT 'Amazon Customer',
+        rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+        title VARCHAR(200) NOT NULL,
+        body TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(product_id, user_id)
+      );
+    `);
+    console.log("✅ Database migrations completed.");
+  } catch (err) {
+    console.error("⚠️ Migration error (non-fatal):", err.message);
+  }
+}
+
+// ============================
 // START THE SERVER
 // ============================
-// app.listen() starts the server and waits for incoming requests.
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+// Run migrations, then start listening for requests.
+runMigrations().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Server is running on http://localhost:${PORT}`);
+  });
 });
